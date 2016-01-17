@@ -10,3 +10,5 @@ Hardware used:
  - DFRobot LCD Keypad Shield
  - Arduino Uno
  - Keyes_SJoys joystick (http://www.plexishop.it/en/modulo-joystick-keyes-sjoys.html)
+
+Trying an approach suggested by https://github.com/XRobots, the controller doesn't broadcast to the robot: the robot requests controller status through a JSON `{"command": "somecommand"}` and the controller responds with its current status.

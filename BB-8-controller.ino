@@ -14,126 +14,139 @@ int joystickYPin = A2;
 int joystickButtonPin = 13;
 
 // define some values used by the buttons
-#define btnRIGHT  0
-#define btnUP     1
-#define btnDOWN   2
-#define btnLEFT   3
-#define btnSELECT 4
-#define btnNONE   5
+#define BUTTON_VALUE_RIGHT  0
+#define BUTTON_VALUE_UP     1
+#define BUTTON_VALUE_DOWN   2
+#define BUTTON_VALUE_LEFT   3
+#define BUTTON_VALUE_SELECT 4
+#define BUTTON_VALUE_NONE   5
 
 // and some variables for the joystick and buttons
 int analogKeyPressVal  = 0;
 int joystickXValue = 0;
 int joystickYValue = 0;
-int lcdKey = 0;
-  
+int lcdKeyPressed = 0;
+
 int bluetoothTx = 2;  // TX-O pin of bluetooth mate, Arduino D2
 int bluetoothRx = 3;  // RX-I pin of bluetooth mate, Arduino D3
 
 SoftwareSerial bluetooth(bluetoothTx, bluetoothRx);
 
-String eulerData;
-
 aJsonStream serialStream(&Serial);
 aJsonStream bluetoothStream(&bluetooth);
 
-aJsonObject *createCommandMessage(char *command) {
+/* =================================================================
+ * createResponseToRobot() - Create the JSON-formatted response to
+ * send back to the robot, as requested
+ *
+ */
+aJsonObject *createResponseToRobot(char *command) {
   aJsonObject *msg = aJson.createObject();
 
   aJson.addStringToObject(msg, "command", command);
   aJson.addNumberToObject(msg, "analogKeyPressVal", analogKeyPressVal);
   aJson.addNumberToObject(msg, "joystickXValue", joystickXValue);
   aJson.addNumberToObject(msg, "joystickYValue", joystickYValue);
-  aJson.addNumberToObject(msg, "lcdKey", lcdKey);
-  
+  aJson.addNumberToObject(msg, "lcdKeyPressed", lcdKeyPressed);
+
   return msg;
 }
 
-void issueCommand(char *cmd) {
-  aJsonObject *msg = createCommandMessage(cmd);
+/* =================================================================
+ * handleCommand() - Do something special with the incoming command
+ *
+ */
+void handleCommand(char *cmd) {
+  // TODO: Right now the command is always "?", which means "send me your controller state".
+  // It should be able to do other stuff, but I don't need it to do other stuff right now..
+  aJsonObject *msg = createResponseToRobot(inferCommandToIssueFromControllerState());
+
   aJson.print(msg, &bluetoothStream);
   aJson.print(msg, &serialStream);
+
   aJson.deleteItem(msg);
 }
 
-int readLCDButton()
-{
- analogKeyPressVal = analogRead(0);      // read the value from the sensor
- // my buttons when read are centered at these valies: 0, 144, 329, 504, 741
- // we add approx 50 to those values and check to see if we are close
- if (analogKeyPressVal > 1000) return btnNONE; // We make this the 1st option for speed reasons since it will be the most likely result
- // For V1.1 us this threshold
-// if (analogKeyPressVal < 50)   return btnRIGHT;
-// if (analogKeyPressVal < 250)  return btnUP;
-// if (analogKeyPressVal < 450)  return btnDOWN;
-// if (analogKeyPressVal < 650)  return btnLEFT;
-// if (analogKeyPressVal < 850)  return btnSELECT;
+/* =================================================================
+ * readLCDButton() - Set the current analog value of the key that is
+ * pressed and return the key pressed, BUTTON_VALUE_NONE if none.
+ *
+ */
+int readLCDButton() {
+ analogKeyPressVal = analogRead(0);
 
- // For V1.0 comment the other threshold and use the one below:
- if (analogKeyPressVal < 50)   return btnRIGHT;
- if (analogKeyPressVal < 195)  return btnUP;
- if (analogKeyPressVal < 380)  return btnDOWN;
- if (analogKeyPressVal < 555)  return btnLEFT;
- if (analogKeyPressVal < 790)  return btnSELECT;
+ if (analogKeyPressVal > 1000) { return BUTTON_VALUE_NONE; }
+ if (analogKeyPressVal < 50)   { return BUTTON_VALUE_RIGHT; }
+ if (analogKeyPressVal < 195)  { return BUTTON_VALUE_UP; }
+ if (analogKeyPressVal < 380)  { return BUTTON_VALUE_DOWN; }
+ if (analogKeyPressVal < 555)  { return BUTTON_VALUE_LEFT; }
+ if (analogKeyPressVal < 790)  { return BUTTON_VALUE_SELECT; }
 
- return btnNONE;  // when all others fail, return this...
+ return BUTTON_VALUE_NONE;
 }
 
-char *getCommand() {
+/* =================================================================
+ * inferCommandToIssueFromControllerState() - Given the controller's
+ * current state, infer the command to issue to the robot. This is
+ * only useful until I make the robot smart enough to make decisions
+ * based on the controller's raw values. Or maybe I will leave it
+ * like this forever. Who knows?
+ *
+ */
+char *inferCommandToIssueFromControllerState() {
   joystickXValue = analogRead(joystickXPin);
   joystickYValue = analogRead(joystickYPin);
 
-  lcdKey = readLCDButton();
-  
-  if (lcdKey !=5) {
-    return("I");
-  }
-  if(joystickXValue > 800) {
-    return("F");
-  } 
-  if(joystickXValue < 250) {
-    return("B");
-  } 
-  if(joystickYValue > 800) {
-    return("R");
-  } 
-  if(joystickYValue < 250) {
-    return("L");
-  } 
-  if(joystickXValue >= 490 && joystickXValue <= 600 && joystickYValue >= 490 && joystickYValue <= 600 && lcdKey == 5) {
+  lcdKeyPressed = readLCDButton();
+
+  if (lcdKeyPressed !=5) { return("I"); }
+  if(joystickXValue > 800) {return("F"); }
+  if(joystickXValue < 250) {return("B"); }
+  if(joystickYValue > 800) {return("R"); }
+  if(joystickYValue < 250) {return("L"); }
+
+  if(joystickXValue >= 490 && joystickXValue <= 600 && joystickYValue >= 490 && joystickYValue <= 600 && lcdKeyPressed == 5) {
     return("S");
   }
 }
 
+/* =================================================================
+ * updateLCD() - Update the LCD with the values we want to display.
+ *
+ */
 void updateLCD() {
   joystickXValue = analogRead(joystickXPin);
   joystickYValue = analogRead(joystickYPin);
 
-  lcdKey = readLCDButton();
+  lcdKeyPressed = readLCDButton();
   readLCDButton();
-  
+
   lcd.setCursor(0,1);
-  lcd.print("                ");
+  lcd.clear();
   lcd.setCursor(0,1);
   lcd.print(joystickXValue);
   lcd.setCursor(5,1);
   lcd.print(joystickYValue);
   lcd.setCursor(10,1);
-  lcd.print(lcdKey);
-   
+  lcd.print(lcdKeyPressed);
+
   lcd.setCursor(12,1);
   lcd.print(analogKeyPressVal);
 }
 
 void processRobotMessage(aJsonObject *msg) {
   aJsonObject *command = aJson.getObjectItem(msg, "command");
-  issueCommand(command->valuestring);
+
+  handleCommand(command->valuestring);
 
   aJson.deleteItem(command);
 }
 
-void setup()
-{
+/* =================================================================
+ * setup() - Runs once on startup
+ *
+ */
+void setup() {
   Serial.begin(115200);
   bluetooth.begin(115200);  // The Bluetooth Mate defaults to 115200bps
   bluetooth.print("$");  // Print three times individually
@@ -149,27 +162,33 @@ void setup()
   Serial.println("Running on the controller");
 }
 
-void loop()
-{  
+/* =================================================================
+ * loop() - Runs forever
+ *
+ */
+void loop() {
+  // Update the LCD with whatever I want to display
   updateLCD();
-  
+
+  // Process commands from the Bluetooth stream
   if (bluetoothStream.available()) { bluetoothStream.skip(); }
 
   if (bluetoothStream.available()) {
     aJsonObject *msg = aJson.parse(&bluetoothStream);
-    
+
     processRobotMessage(msg);
-    
+
     aJson.deleteItem(msg);
   }
-  
+
+  // Also process commands from the serial port stream - super handy for troubleshooting
   if (serialStream.available()) { serialStream.skip(); }
 
   if (serialStream.available()) {
     aJsonObject *msg = aJson.parse(&serialStream);
-    
+
     processRobotMessage(msg);
-    
+
     aJson.deleteItem(msg);
   }
 }
