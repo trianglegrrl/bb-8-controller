@@ -13,7 +13,15 @@ int joystickXPin = A3;
 int joystickYPin = A2;
 int joystickButtonPin = 13;
 
-// define some values used by the panel and buttons
+// define some values used by the buttons
+#define btnRIGHT  0
+#define btnUP     1
+#define btnDOWN   2
+#define btnLEFT   3
+#define btnSELECT 4
+#define btnNONE   5
+
+// and some variables for the joystick and buttons
 int analogKeyPressVal  = 0;
 int joystickXValue = 0;
 int joystickYValue = 0;
@@ -24,13 +32,7 @@ int bluetoothRx = 3;  // RX-I pin of bluetooth mate, Arduino D3
 
 SoftwareSerial bluetooth(bluetoothTx, bluetoothRx);
 
-
-#define btnRIGHT  0
-#define btnUP     1
-#define btnDOWN   2
-#define btnLEFT   3
-#define btnSELECT 4
-#define btnNONE   5
+String eulerData;
 
 aJsonStream serialStream(&Serial);
 aJsonStream bluetoothStream(&bluetooth);
@@ -76,25 +78,6 @@ int readLCDButton()
 
  return btnNONE;  // when all others fail, return this...
 }
-
-void setup()
-{
-  Serial.begin(115200);
-  bluetooth.begin(115200);  // The Bluetooth Mate defaults to 115200bps
-  bluetooth.print("$");  // Print three times individually
-  bluetooth.print("$");
-  bluetooth.print("$");  // Enter command mode
-  delay(100);  // Short delay, wait for the Mate to send back CMD
-  bluetooth.println("U,9600,N");  // Temporarily Change the baudrate to 9600, no parity
-  delay(100);
-  // 115200 can be too fast at times for NewSoftSerial to relay the data reliably
-  bluetooth.begin(9600);  // Start bluetooth serial at 9600
-  lcd.begin(16, 2);              // start the library
-  lcd.clear();
-  Serial.println("Running on the controller");
-}
-
-String eulerData;
 
 char *getCommand() {
   joystickXValue = analogRead(joystickXPin);
@@ -142,33 +125,52 @@ void updateLCD() {
   lcd.print(analogKeyPressVal);
 }
 
+void processRobotMessage(aJsonObject *msg) {
+  aJsonObject *command = aJson.getObjectItem(msg, "command");
+  issueCommand(command->valuestring);
+
+  aJson.deleteItem(command);
+}
+
+void setup()
+{
+  Serial.begin(115200);
+  bluetooth.begin(115200);  // The Bluetooth Mate defaults to 115200bps
+  bluetooth.print("$");  // Print three times individually
+  bluetooth.print("$");
+  bluetooth.print("$");  // Enter command mode
+  delay(100);  // Short delay, wait for the Mate to send back CMD
+  bluetooth.println("U,9600,N");  // Temporarily Change the baudrate to 9600, no parity
+  delay(100);
+  // 115200 can be too fast at times for NewSoftSerial to relay the data reliably
+  bluetooth.begin(9600);  // Start bluetooth serial at 9600
+  lcd.begin(16, 2);              // start the library
+  lcd.clear();
+  Serial.println("Running on the controller");
+}
+
 void loop()
 {  
   updateLCD();
   
-  if(bluetooth.available()) { // If the bluetooth sent any characters
-    while(bluetooth.available()) {
-      char btCharacter = bluetooth.read();
-      switch(btCharacter) {
-        case '?':
-          issueCommand(getCommand());
-          break;
-      }
-    }
-  }
+  if (bluetoothStream.available()) { bluetoothStream.skip(); }
 
-  if(Serial.available()) { // If stuff was typed in the serial monitor
-    // Send any characters the Serial monitor prints to the bluetooth
-    // bluetooth.print((char)Serial.read());
+  if (bluetoothStream.available()) {
+    aJsonObject *msg = aJson.parse(&bluetoothStream);
     
-    while(Serial.available()) {
-      char serialCharacter = Serial.read();
-      switch(serialCharacter) {
-        case '?':
-          issueCommand(getCommand());
-          break;
-      }
-    }
+    processRobotMessage(msg);
+    
+    aJson.deleteItem(msg);
+  }
+  
+  if (serialStream.available()) { serialStream.skip(); }
+
+  if (serialStream.available()) {
+    aJsonObject *msg = aJson.parse(&serialStream);
+    
+    processRobotMessage(msg);
+    
+    aJson.deleteItem(msg);
   }
 }
 
