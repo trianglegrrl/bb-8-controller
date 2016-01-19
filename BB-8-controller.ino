@@ -42,11 +42,11 @@ LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 #define JOYSTICK_X_PIN      A3
 #define JOYSTICK_Y_PIN      A2
 
-// These are the thresholds above and below
-// which the robot is commanded to move.
-// If the value is between these numbers, the
-// joystick is in a neutral(-ish) position and
-// the command should be "stop moving!"
+/*
+ * These are the thresholds above and below which the robot is commanded to move.
+ * If the value is between these numbers, the joystick is in a neutral(-ish)
+ * position and the command should be "stop moving!"
+ */
 #define JOYSTICK_X_FWD_ACTIVATE_THRESHOLD 800
 #define JOYSTICK_X_BWD_ACTIVATE_THRESHOLD 250
 #define JOYSTICK_Y_FWD_ACTIVATE_THRESHOLD 800
@@ -54,10 +54,36 @@ LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 
 // and some variables for the joystick and buttons
 int analogKeyPressVal  = 0; // The raw value that the LCD Keypad Shield returns for a button press
-int joystickXValue = 0; // The analog value of the joystick X position (0-1024)
-int joystickYValue = 0; // The analog value of the joystick Y position (0-1024)
 int lcdKeyPressed = 0; // The BUTTON_VALUE_* (see above) of the key that was pressed
 
+int joystickXValue = 0; // The analog value of the joystick X position (0-1024)
+int joystickYValue = 0; // The analog value of the joystick Y position (0-1024)
+
+/* =================================================================
+ * setup() - Runs once on startup
+ */
+void setup() {
+  Serial.begin(115200); // Local (USB) serial port.
+
+  setupBlueSMiRF(); // Bluetooth adapter
+
+  setupLCDShield(); // DFRobot LCD Keypad shield
+
+  Serial.println("BB-8 Controller ready.");
+}
+
+/* =================================================================
+ * loop() - Runs forever
+ */
+void loop() {
+  // Update the LCD with whatever I want to display
+  updateLCD();
+
+  // Read command from robot via Bluetooth adapter
+  readAndProcessRobotMessageIfAvailable(&bluetoothStream);
+  // Read command from local serial port. Useful for debugging.
+  readAndProcessRobotMessageIfAvailable(&serialStream);
+}
 
 /* =================================================================
  * createResponseToRobot() - Create the JSON-formatted response to
@@ -65,14 +91,14 @@ int lcdKeyPressed = 0; // The BUTTON_VALUE_* (see above) of the key that was pre
  *
  * The message to the robot includes a lot of data about the state of
  * the controller. The message currently looks like this:
-
-  {
-    "command": "F",           // Currently a single character command that's inferred from the controller state
-    "analogKeyPressVal": 300, // The analog value that the LCD Keypad Shield returns for the key that is pressed
-    "joystickXValue": 506,    // The analog value of the joystick's X position
-    "joystickYValue": 506,    // The analog value of the joystick's Y position
-    "lcdKeyPressed": 3        // The BUTTON_VALUE_* (see above) of the key that was pressed
-  }
+ *
+ * {
+ *   "command": "F",           // Currently a single character command that's inferred from the controller state
+ *   "analogKeyPressVal": 300, // The analog value that the LCD Keypad Shield returns for the key that is pressed
+ *   "joystickXValue": 506,    // The analog value of the joystick's X position
+ *   "joystickYValue": 506,    // The analog value of the joystick's Y position
+ *   "lcdKeyPressed": 3        // The BUTTON_VALUE_* (see above) of the key that was pressed
+ * }
  */
 aJsonObject *createResponseToRobot(char *command) {
   aJsonObject *msg = aJson.createObject();
@@ -88,11 +114,11 @@ aJsonObject *createResponseToRobot(char *command) {
 
 /* =================================================================
  * handleCommand() - Do something special with the incoming command
- *
+ * TODO: Right now the command is always "?", which means "send me your
+ * controller state". It should be able to do other stuff, but I don't
+ * need it to do other stuff right now.
  */
 void handleCommand(char *cmd) {
-  // TODO: Right now the command is always "?", which means "send me your controller state".
-  // It should be able to do other stuff, but I don't need it to do other stuff right now.
   aJsonObject *msg = createResponseToRobot(inferCommandToIssueFromControllerState());
 
   aJson.print(msg, &bluetoothStream); // Send the json to the robot
@@ -192,10 +218,9 @@ void shittyHackToSendStatusIfYouPressedSelect(int lcdKeyPressed) {
  * Yjoyv - Joystick's Y analog value
  * BUTN - Text of which button was pressed
 
- * Posit  0123456789ABCDEF
- * LINE1: QU1 QU2 QU3 QU4
- * LINE2: Xjoyv Yjoyv BUTN
- *
+ * Position 0123456789ABCDEF
+ * LINE1:   QU1 QU2 QU3 QU4     - Quaternion values from robot IMU
+ * LINE2:   Xjoyv Yjoyv BUTN    - Values from controller
  */
 void updateLCD() {
   static int lastJoystickXValue = 0;
@@ -308,6 +333,7 @@ void setupBlueSMiRF() {
   delay(100);  // Short delay, wait for the Mate to send back CMD
   bluetooth.println("U,9600,N");  // Temporarily Change the baudrate to 9600, no parity
   delay(100);
+
   bluetooth.begin(9600);
 }
 
@@ -318,30 +344,3 @@ void setupLCDShield() {
   lcd.begin(16, 2); // 2 lines, 16 characters each
   lcd.clear();
 }
-
-/* =================================================================
- * setup() - Runs once on startup
- *
- */
-void setup() {
-  Serial.begin(115200); // Local (USB) serial port.
-
-  setupBlueSMiRF(); // Bluetooth adapter
-  setupLCDShield(); // DFRobot LCD Keypad shield
-
-  Serial.println("BB-8 Controller ready.");
-}
-
-/* =================================================================
- * loop() - Runs forever
- */
-void loop() {
-  // Update the LCD with whatever I want to display
-  updateLCD();
-
-  // Read command from robot via Bluetooth adapter
-  readAndProcessRobotMessageIfAvailable(&bluetoothStream);
-  // Read command from local serial port. Useful for debugging.
-  readAndProcessRobotMessageIfAvailable(&serialStream);
-}
-
