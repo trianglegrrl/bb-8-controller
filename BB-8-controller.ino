@@ -161,16 +161,19 @@ char *inferCommandToIssueFromControllerState() {
 
   lcdKeyPressed = readLCDButton();
 
-  if (lcdKeyPressed != BUTTON_VALUE_NONE) { return("I"); }
+  if (isJoystickInStopPosition(joystickXValue, joystickYValue)) { return("BS"); }
 
-  if (joystickXValue > JOYSTICK_X_FWD_ACTIVATE_THRESHOLD) { return("F"); }
-  if (joystickXValue < JOYSTICK_X_BWD_ACTIVATE_THRESHOLD) { return("B"); }
-  if (joystickYValue > JOYSTICK_Y_FWD_ACTIVATE_THRESHOLD) { return("R"); }
-  if (joystickYValue < JOYSTICK_Y_BWD_ACTIVATE_THRESHOLD) { return("L"); }
+  if (joystickXValue > JOYSTICK_X_FWD_ACTIVATE_THRESHOLD) { return("BF"); }
+  if (joystickXValue < JOYSTICK_X_BWD_ACTIVATE_THRESHOLD) { return("BB"); }
+  if (joystickYValue > JOYSTICK_Y_FWD_ACTIVATE_THRESHOLD) { return("BR"); }
+  if (joystickYValue < JOYSTICK_Y_BWD_ACTIVATE_THRESHOLD) { return("BL"); }
 
-  if (isJoystickInStopPosition(joystickXValue, joystickYValue)) { return("S"); }
+  if (lcdKeyPressed == BUTTON_VALUE_LEFT) { return("PHL"); }
+  if (lcdKeyPressed == BUTTON_VALUE_RIGHT) { return("PHR"); }
+  if (lcdKeyPressed == BUTTON_VALUE_UP) { return("THL"); }
+  if (lcdKeyPressed == BUTTON_VALUE_DOWN) { return("THR"); }
 
-  return("S"); // Default: all stop.
+  return("BS"); // Default: all stop.
 }
 
 /* =================================================================
