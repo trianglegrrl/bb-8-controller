@@ -1,19 +1,36 @@
-// Here's my LCD Keypad Shield with pinouts
-// https://www.evernote.com/shard/s443/sh/9757e419-bec9-459c-b8e3-c6f2b7ee7b2e/fb8fbe5e73d3ca6749ab9b87808ce482
-// D0/1/2/3 are offset, and there is some weirdness with available pins on the top right header. See diagram for
-// details.
+
 #include <LiquidCrystal.h>
 #include <SoftwareSerial.h>
 
 #include <aJSON.h> // https://github.com/interactive-matter/aJson
 
+/*
+ * Set up BlueSMiRF adapter
+ * The controller communicates with the robot over Bluetooth. Set up
+ * SoftwareSerial port to handle the communication.
+ */
+#define BLUETOOTH_TX_PIN 2  // TX-O pin of bluetooth mate, Arduino D2
+#define BLUETOOTH_RX_PIN 3  // RX-I pin of bluetooth mate, Arduino D3
+SoftwareSerial bluetooth(BLUETOOTH_TX_PIN, BLUETOOTH_TX_PIN); // Set up bluetooth serial communication
+
+// These are used to cleanly read/write JSON data to/from the serial port(s), including bluetooth
+aJsonStream serialStream(&Serial); // local (USB) serial port
+aJsonStream bluetoothStream(&bluetooth); // bluetooth connection to the robot
+
+/*
+ * Set up library for the LCD keypad shield.
+ */
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 
-int joystickXPin = A3;
-int joystickYPin = A2;
-int joystickButtonPin = 13;
+#define LCD_KEYPRESS_PIN 0 // Analog pin corresponding to the keypress value
+#define LCD_FIRST_LINE   0
+#define LCD_SECOND_LINE  1
+// Display positions on the LCD screen for the given value. Screen is 2 lines, 16 characters each
+#define LCD_JOYSTICK_X_POSITION       0 // Position on the LCD line that shows the joystick's X value
+#define LCD_JOYSTICK_Y_POSITION       6 // Position on the LCD line that shows the joystick's Y value
+#define LCD_JOYSTICK_BUTTON_POSITION 12 // Position on the LCD line that shows the button pressed
 
-// define some values used by the buttons
+// These are the tidied values we send if these buttons are pressed
 #define BUTTON_VALUE_RIGHT  0
 #define BUTTON_VALUE_UP     1
 #define BUTTON_VALUE_DOWN   2
@@ -21,33 +38,50 @@ int joystickButtonPin = 13;
 #define BUTTON_VALUE_SELECT 4
 #define BUTTON_VALUE_NONE   5
 
+// Pins the joystick is connected to.
+#define JOYSTICK_X_PIN      A3
+#define JOYSTICK_Y_PIN      A2
+
+// These are the thresholds above and below
+// which the robot is commanded to move.
+// If the value is between these numbers, the
+// joystick is in a neutral(-ish) position and
+// the command should be "stop moving!"
+#define JOYSTICK_X_FWD_ACTIVATE_THRESHOLD 800
+#define JOYSTICK_X_BWD_ACTIVATE_THRESHOLD 250
+#define JOYSTICK_Y_FWD_ACTIVATE_THRESHOLD 800
+#define JOYSTICK_Y_BWD_ACTIVATE_THRESHOLD 250
+
 // and some variables for the joystick and buttons
-int analogKeyPressVal  = 0;
-int joystickXValue = 0;
-int joystickYValue = 0;
-int lcdKeyPressed = 0;
+int analogKeyPressVal  = 0; // The raw value that the LCD Keypad Shield returns for a button press
+int joystickXValue = 0; // The analog value of the joystick X position (0-1024)
+int joystickYValue = 0; // The analog value of the joystick Y position (0-1024)
+int lcdKeyPressed = 0; // The BUTTON_VALUE_* (see above) of the key that was pressed
 
-int bluetoothTx = 2;  // TX-O pin of bluetooth mate, Arduino D2
-int bluetoothRx = 3;  // RX-I pin of bluetooth mate, Arduino D3
-
-SoftwareSerial bluetooth(bluetoothTx, bluetoothRx);
-
-aJsonStream serialStream(&Serial);
-aJsonStream bluetoothStream(&bluetooth);
 
 /* =================================================================
  * createResponseToRobot() - Create the JSON-formatted response to
  * send back to the robot, as requested
  *
+ * The message to the robot includes a lot of data about the state of
+ * the controller. The message currently looks like this:
+
+  {
+    "command": "F",           // Currently a single character command that's inferred from the controller state
+    "analogKeyPressVal": 300, // The analog value that the LCD Keypad Shield returns for the key that is pressed
+    "joystickXValue": 506,    // The analog value of the joystick's X position
+    "joystickYValue": 506,    // The analog value of the joystick's Y position
+    "lcdKeyPressed": 3        // The BUTTON_VALUE_* (see above) of the key that was pressed
+  }
  */
 aJsonObject *createResponseToRobot(char *command) {
   aJsonObject *msg = aJson.createObject();
 
-  aJson.addStringToObject(msg, "command", command);
-  aJson.addNumberToObject(msg, "analogKeyPressVal", analogKeyPressVal);
-  aJson.addNumberToObject(msg, "joystickXValue", joystickXValue);
-  aJson.addNumberToObject(msg, "joystickYValue", joystickYValue);
-  aJson.addNumberToObject(msg, "lcdKeyPressed", lcdKeyPressed);
+  aJson.addStringToObject(msg, "command", command); // Currently a single character command that's inferred from the controller state
+  aJson.addNumberToObject(msg, "analogKeyPressVal", analogKeyPressVal); // The analog value that the LCD Keypad Shield returns for the key that is pressed
+  aJson.addNumberToObject(msg, "joystickXValue", joystickXValue); // The analog value of the joystick's X position
+  aJson.addNumberToObject(msg, "joystickYValue", joystickYValue); // The analog value of the joystick's Y position
+  aJson.addNumberToObject(msg, "lcdKeyPressed", lcdKeyPressed); // The BUTTON_VALUE_* (see above) of the key that was pressed
 
   return msg;
 }
@@ -58,23 +92,26 @@ aJsonObject *createResponseToRobot(char *command) {
  */
 void handleCommand(char *cmd) {
   // TODO: Right now the command is always "?", which means "send me your controller state".
-  // It should be able to do other stuff, but I don't need it to do other stuff right now..
+  // It should be able to do other stuff, but I don't need it to do other stuff right now.
   aJsonObject *msg = createResponseToRobot(inferCommandToIssueFromControllerState());
 
-  aJson.print(msg, &bluetoothStream);
-  aJson.print(msg, &serialStream);
+  aJson.print(msg, &bluetoothStream); // Send the json to the robot
+  aJson.print(msg, &serialStream); // Also print the json to the serial stream for troubleshooting
 
-  aJson.deleteItem(msg);
+  aJson.deleteItem(msg); // Clean up allocated memory
 }
 
 /* =================================================================
  * readLCDButton() - Set the current analog value of the key that is
  * pressed and return the key pressed, BUTTON_VALUE_NONE if none.
  *
+ * I'm using the DFRobot LCD Keypad Shield right now, but I don't like
+ * it and hope to replace it with a 2.8" TFT screen soon.
  */
 int readLCDButton() {
- analogKeyPressVal = analogRead(0);
+ analogKeyPressVal = analogRead(LCD_KEYPRESS_PIN); //
 
+ // Values are for v1.0 of the LCD keypad shield. Inelegant but functional.
  if (analogKeyPressVal > 1000) { return BUTTON_VALUE_NONE; }
  if (analogKeyPressVal < 50)   { return BUTTON_VALUE_RIGHT; }
  if (analogKeyPressVal < 195)  { return BUTTON_VALUE_UP; }
@@ -91,49 +128,163 @@ int readLCDButton() {
  * only useful until I make the robot smart enough to make decisions
  * based on the controller's raw values. Or maybe I will leave it
  * like this forever. Who knows?
- *
  */
 char *inferCommandToIssueFromControllerState() {
-  joystickXValue = analogRead(joystickXPin);
-  joystickYValue = analogRead(joystickYPin);
+  joystickXValue = analogRead(JOYSTICK_X_PIN);
+  joystickYValue = analogRead(JOYSTICK_Y_PIN);
 
   lcdKeyPressed = readLCDButton();
 
-  if (lcdKeyPressed !=5) { return("I"); }
-  if(joystickXValue > 800) {return("F"); }
-  if(joystickXValue < 250) {return("B"); }
-  if(joystickYValue > 800) {return("R"); }
-  if(joystickYValue < 250) {return("L"); }
+  if (lcdKeyPressed != BUTTON_VALUE_NONE) { return("I"); }
 
-  if(joystickXValue >= 490 && joystickXValue <= 600 && joystickYValue >= 490 && joystickYValue <= 600 && lcdKeyPressed == 5) {
-    return("S");
+  if (joystickXValue > JOYSTICK_X_FWD_ACTIVATE_THRESHOLD) { return("F"); }
+  if (joystickXValue < JOYSTICK_X_BWD_ACTIVATE_THRESHOLD) { return("B"); }
+  if (joystickYValue > JOYSTICK_Y_FWD_ACTIVATE_THRESHOLD) { return("R"); }
+  if (joystickYValue < JOYSTICK_Y_BWD_ACTIVATE_THRESHOLD) { return("L"); }
+
+  if (isJoystickInStopPosition(joystickXValue, joystickYValue)) { return("S"); }
+
+  return("S"); // Default: all stop.
+}
+
+/* =================================================================
+ * isJoystickInStopPosition() - Returns true if joystick is in a "stop"
+ * position, false otherwise.
+ */
+bool isJoystickInStopPosition(int joystickXValue, int joystickYValue) {
+  return(
+        joystickXValue >= JOYSTICK_X_BWD_ACTIVATE_THRESHOLD
+     && joystickXValue <= JOYSTICK_X_FWD_ACTIVATE_THRESHOLD
+     && joystickYValue >= JOYSTICK_Y_BWD_ACTIVATE_THRESHOLD
+     && joystickYValue <= JOYSTICK_Y_FWD_ACTIVATE_THRESHOLD
+  );
+}
+
+/* =================================================================
+ * shittyHackToSendStatusIfYouPressedSelect() - Descriptive function names FTW.
+ *
+ * PELIGRO! todo: This is a hack to make the controller send a message
+ * to the robot containing its current state. Used for testing.
+ * Should never need it in production. Delete this once the robot works.
+ *
+ * AH, 19 Jan 2016
+ */
+void shittyHackToSendStatusIfYouPressedSelect(int lcdKeyPressed) {
+  // TODO: Refactor this for proper button handling
+  // Temp hack to use this button to send state.
+  if (lcdKeyPressed == BUTTON_VALUE_SELECT) {
+    Serial.println("You pressed the select button");
+    aJsonObject *msg = createResponseToRobot("M");
+
+    aJson.print(msg, &bluetoothStream);
+    aJson.print(msg, &serialStream);
+
+    aJson.deleteItem(msg);
   }
 }
 
 /* =================================================================
  * updateLCD() - Update the LCD with the values we want to display.
  *
+ * LCD Panel - 16 characters long, 2 lines
+ * QUn - Quaternion value from IMU (WXYZ)
+ * Xjoyv - Joystick's X analog value
+ * Yjoyv - Joystick's Y analog value
+ * BUTN - Text of which button was pressed
+
+ * Posit  0123456789ABCDEF
+ * LINE1: QU1 QU2 QU3 QU4
+ * LINE2: Xjoyv Yjoyv BUTN
+ *
  */
 void updateLCD() {
-  joystickXValue = analogRead(joystickXPin);
-  joystickYValue = analogRead(joystickYPin);
+  static int lastJoystickXValue = 0;
+  static int lastJoystickYValue = 0;
+  static int lastLcdKeyPressed = 0;
 
+  // Set global variables with the values
+  joystickXValue = analogRead(JOYSTICK_X_PIN);
+  joystickYValue = analogRead(JOYSTICK_Y_PIN);
   lcdKeyPressed = readLCDButton();
-  readLCDButton();
 
-  lcd.setCursor(0,1);
-  lcd.clear();
-  lcd.setCursor(0,1);
-  lcd.print(joystickXValue);
-  lcd.setCursor(5,1);
-  lcd.print(joystickYValue);
-  lcd.setCursor(10,1);
-  lcd.print(lcdKeyPressed);
+  // todo: remove this, but remove it because it's stupid.
+  shittyHackToSendStatusIfYouPressedSelect(lcdKeyPressed);
 
-  lcd.setCursor(12,1);
-  lcd.print(analogKeyPressVal);
+  // Only update if this value has changed
+  if(lastJoystickXValue != joystickXValue) {
+    // My hacky way to clear only the area I want
+    lcd.setCursor(LCD_JOYSTICK_X_POSITION, LCD_SECOND_LINE); lcd.print("    ");
+    // Update the value
+    lcd.setCursor(LCD_JOYSTICK_X_POSITION, LCD_SECOND_LINE); lcd.print("X"); lcd.print(joystickXValue);
+
+    lastJoystickXValue = joystickXValue;
+  }
+
+  // Only update if this value has changed
+  if(lastJoystickYValue != joystickYValue) {
+    // My hacky way to clear only the area I want
+    lcd.setCursor(LCD_JOYSTICK_Y_POSITION, LCD_SECOND_LINE); lcd.print("    ");
+    // Update the value
+    lcd.setCursor(LCD_JOYSTICK_Y_POSITION, LCD_SECOND_LINE); lcd.print("Y"); lcd.print(joystickYValue);
+
+    lastJoystickYValue = joystickYValue;
+  }
+
+  // Only update if this value has changed
+  if(lastLcdKeyPressed != lcdKeyPressed) {
+    // My hacky way to clear only the area I want
+    lcd.setCursor(LCD_JOYSTICK_BUTTON_POSITION, LCD_SECOND_LINE); lcd.print("    ");
+    // Update the value
+    lcd.setCursor(LCD_JOYSTICK_BUTTON_POSITION, LCD_SECOND_LINE); lcd.print(lcdButtonName(lcdKeyPressed));
+
+    lastLcdKeyPressed = lcdKeyPressed;
+  }
 }
 
+/* =================================================================
+ * lcdButtonName() - Return readable name for the specified button.
+ */
+char *lcdButtonName(int keyVal) {
+  switch(keyVal) {
+    case BUTTON_VALUE_RIGHT:
+      return "RIGHT";
+    case BUTTON_VALUE_UP:
+      return "UP";
+    case BUTTON_VALUE_DOWN:
+      return "DOWN";
+    case BUTTON_VALUE_LEFT:
+      return "LEFT";
+    case BUTTON_VALUE_SELECT:
+      return "SELECT";
+    case BUTTON_VALUE_NONE:
+      return "NONE";
+    default:
+      return "UNKNOWN";
+  }
+}
+
+/* =================================================================
+ * readAndProcessRobotMessageIfAvailable() - Check the specified
+ * stream for JSON from the robot, and if there is some, process the
+ * data and react accordingly.
+ */
+void readAndProcessRobotMessageIfAvailable(aJsonStream *stream) {
+  if (stream->available()) { stream->skip(); }
+
+  if (stream->available()) {
+    aJsonObject *msg = aJson.parse(stream);
+
+    processRobotMessage(msg);
+
+    aJson.deleteItem(msg);
+  }
+}
+
+/* =================================================================
+ * processRobotMessage() - Parse and process the received message.
+ * Right now, all we're looking for is the command the robot is
+ * sending. See handleCommand() for more details.
+ */
 void processRobotMessage(aJsonObject *msg) {
   aJsonObject *command = aJson.getObjectItem(msg, "command");
 
@@ -143,53 +294,54 @@ void processRobotMessage(aJsonObject *msg) {
 }
 
 /* =================================================================
+ * setupBlueSMiRF() - Configure BlueSMiRF for commanding
+ *
+ * The rumour is that SoftwareSerial doesn't support 115200, so bump
+ * it down to 9600. Which seems really low. I'll play with it.
+ */
+void setupBlueSMiRF() {
+  bluetooth.begin(115200);
+  bluetooth.print("$");
+  bluetooth.print("$");
+  bluetooth.print("$");
+
+  delay(100);  // Short delay, wait for the Mate to send back CMD
+  bluetooth.println("U,9600,N");  // Temporarily Change the baudrate to 9600, no parity
+  delay(100);
+  bluetooth.begin(9600);
+}
+
+/* =================================================================
+ * setupLCDShield() - Configure LCD shield
+ */
+void setupLCDShield() {
+  lcd.begin(16, 2); // 2 lines, 16 characters each
+  lcd.clear();
+}
+
+/* =================================================================
  * setup() - Runs once on startup
  *
  */
 void setup() {
-  Serial.begin(115200);
-  bluetooth.begin(115200);  // The Bluetooth Mate defaults to 115200bps
-  bluetooth.print("$");  // Print three times individually
-  bluetooth.print("$");
-  bluetooth.print("$");  // Enter command mode
-  delay(100);  // Short delay, wait for the Mate to send back CMD
-  bluetooth.println("U,9600,N");  // Temporarily Change the baudrate to 9600, no parity
-  delay(100);
-  // 115200 can be too fast at times for NewSoftSerial to relay the data reliably
-  bluetooth.begin(9600);  // Start bluetooth serial at 9600
-  lcd.begin(16, 2);              // start the library
-  lcd.clear();
-  Serial.println("Running on the controller");
+  Serial.begin(115200); // Local (USB) serial port.
+
+  setupBlueSMiRF(); // Bluetooth adapter
+  setupLCDShield(); // DFRobot LCD Keypad shield
+
+  Serial.println("BB-8 Controller ready.");
 }
 
 /* =================================================================
  * loop() - Runs forever
- *
  */
 void loop() {
   // Update the LCD with whatever I want to display
   updateLCD();
 
-  // Process commands from the Bluetooth stream
-  if (bluetoothStream.available()) { bluetoothStream.skip(); }
-
-  if (bluetoothStream.available()) {
-    aJsonObject *msg = aJson.parse(&bluetoothStream);
-
-    processRobotMessage(msg);
-
-    aJson.deleteItem(msg);
-  }
-
-  // Also process commands from the serial port stream - super handy for troubleshooting
-  if (serialStream.available()) { serialStream.skip(); }
-
-  if (serialStream.available()) {
-    aJsonObject *msg = aJson.parse(&serialStream);
-
-    processRobotMessage(msg);
-
-    aJson.deleteItem(msg);
-  }
+  // Read command from robot via Bluetooth adapter
+  readAndProcessRobotMessageIfAvailable(&bluetoothStream);
+  // Read command from local serial port. Useful for debugging.
+  readAndProcessRobotMessageIfAvailable(&serialStream);
 }
 
