@@ -1,30 +1,23 @@
 
 #include <LiquidCrystal.h>
-#include <SoftwareSerial.h>
 
 #include <aJSON.h> // https://github.com/interactive-matter/aJson
 
-/*
- * Set up BlueSMiRF adapter
- * The controller communicates with the robot over Bluetooth. Set up
- * SoftwareSerial port to handle the communication.
- */
-#define BLUETOOTH_TX_PIN 2  // TX-O pin of bluetooth mate, Arduino D2
-#define BLUETOOTH_RX_PIN 3  // RX-I pin of bluetooth mate, Arduino D3
-SoftwareSerial bluetooth(BLUETOOTH_TX_PIN, BLUETOOTH_TX_PIN); // Set up bluetooth serial communication
+#define bluetooth Serial // I'm defaulting to the Serial port on an Uno, but I'll switch to Serial1 when my new Mega comes
 
-// These are used to cleanly read/write JSON data to/from the serial port(s), including bluetooth
-aJsonStream serialStream(&Serial); // local (USB) serial port
+// used to cleanly read/write JSON data to/from the serial port(s), including bluetooth
 aJsonStream bluetoothStream(&bluetooth); // bluetooth connection to the robot
 
 /*
- * Set up library for the LCD keypad shield.
+ * Set up library for the LCD
  */
-LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
+LiquidCrystal lcd(12, 11, 7, 6, 5, 4);
 
 #define LCD_KEYPRESS_PIN 0 // Analog pin corresponding to the keypress value
 #define LCD_FIRST_LINE   0
 #define LCD_SECOND_LINE  1
+#define LCD_THIRD_LINE   2
+#define LCD_FOURTH_LINE  3
 // Display positions on the LCD screen for the given value. Screen is 2 lines, 16 characters each
 #define LCD_JOYSTICK_X_POSITION       0 // Position on the LCD line that shows the joystick's X value
 #define LCD_JOYSTICK_Y_POSITION       6 // Position on the LCD line that shows the joystick's Y value
@@ -69,7 +62,7 @@ void setup() {
 
   setupLCDShield(); // DFRobot LCD Keypad shield
 
-  Serial.println("BB-8 Controller ready.");
+//  Serial.println("BB-8 Controller ready.");
 }
 
 /* =================================================================
@@ -81,8 +74,6 @@ void loop() {
 
   // Read command from robot via Bluetooth adapter
   readAndProcessRobotMessageIfAvailable(&bluetoothStream);
-  // Read command from local serial port. Useful for debugging.
-  readAndProcessRobotMessageIfAvailable(&serialStream);
 }
 
 /* =================================================================
@@ -122,8 +113,7 @@ void handleCommand(char *cmd) {
   aJsonObject *msg = createResponseToRobot(inferCommandToIssueFromControllerState());
 
   aJson.print(msg, &bluetoothStream); // Send the json to the robot
-  aJson.print(msg, &serialStream); // Also print the json to the serial stream for troubleshooting
-
+  bluetooth.println(" ");
   aJson.deleteItem(msg); // Clean up allocated memory
 }
 
@@ -202,11 +192,11 @@ void shittyHackToSendStatusIfYouPressedSelect(int lcdKeyPressed) {
   // TODO: Refactor this for proper button handling
   // Temp hack to use this button to send state.
   if (lcdKeyPressed == BUTTON_VALUE_SELECT) {
-    Serial.println("You pressed the select button");
+//    Serial.println("You pressed the select button");
     aJsonObject *msg = createResponseToRobot("M");
 
     aJson.print(msg, &bluetoothStream);
-    aJson.print(msg, &serialStream);
+//    aJson.print(msg, &serialStream);
 
     aJson.deleteItem(msg);
   }
@@ -323,27 +313,15 @@ void processRobotMessage(aJsonObject *msg) {
 
 /* =================================================================
  * setupBlueSMiRF() - Configure BlueSMiRF for commanding
- *
- * The rumour is that SoftwareSerial doesn't support 115200, so bump
- * it down to 9600. Which seems really low. I'll play with it.
  */
 void setupBlueSMiRF() {
   bluetooth.begin(115200);
-  bluetooth.print("$");
-  bluetooth.print("$");
-  bluetooth.print("$");
-
-  delay(100);  // Short delay, wait for the Mate to send back CMD
-  bluetooth.println("U,9600,N");  // Temporarily Change the baudrate to 9600, no parity
-  delay(100);
-
-  bluetooth.begin(9600);
 }
 
 /* =================================================================
  * setupLCDShield() - Configure LCD shield
  */
 void setupLCDShield() {
-  lcd.begin(16, 2); // 2 lines, 16 characters each
+  lcd.begin(20, 4); // 4 lines, 20 characters each
   lcd.clear();
 }
